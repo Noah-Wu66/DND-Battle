@@ -315,6 +315,15 @@
         .delete-button:hover {
             background-color: #d32f2f;
         }
+        .delete-button.confirm-delete {
+            background-color: #b71c1c;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
         .hp-display {
             display: flex;
             justify-content: space-between;
@@ -862,6 +871,73 @@
         .down-btn::after {
             content: "↓";
         }
+        .confirm-dialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s, visibility 0.3s;
+        }
+        .confirm-dialog.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        .confirm-box {
+            background-color: white;
+            border-radius: 12px;
+            padding: 20px;
+            max-width: 90%;
+            width: 400px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+        .confirm-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 15px;
+            color: var(--text-color);
+        }
+        .confirm-message {
+            margin-bottom: 20px;
+            color: var(--text-light);
+        }
+        .confirm-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+        .confirm-cancel, .confirm-delete {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .confirm-cancel {
+            background-color: #f1f1f1;
+            color: var(--text-color);
+        }
+        .confirm-cancel:hover {
+            background-color: #e0e0e0;
+        }
+        .confirm-delete {
+            background-color: var(--red);
+            color: white;
+        }
+        .confirm-delete:hover {
+            background-color: #c62828;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(244, 67, 54, 0.3);
+        }
         @media (max-width: 767px) {
             .monster-grid {
                 grid-template-columns: 1fr;
@@ -923,6 +999,10 @@
                 width: 20px;
                 height: 20px;
             }
+            .confirm-box {
+                width: 90%;
+                padding: 20px 15px;
+            }
         }
     </style>
 </head>
@@ -983,6 +1063,16 @@
             </div>
         </div>
     </div>
+    <div class="confirm-dialog" id="confirm-dialog">
+        <div class="confirm-box">
+            <div class="confirm-title">确认删除</div>
+            <div class="confirm-message" id="confirm-message">确定要删除此卡片吗？</div>
+            <div class="confirm-buttons">
+                <button class="confirm-cancel" id="confirm-cancel">取消</button>
+                <button class="confirm-delete" id="confirm-delete">删除</button>
+            </div>
+        </div>
+    </div>
     <div id="sync-status">
         <span class="sync-indicator"></span>
         <span class="sync-text">已同步</span>
@@ -1001,7 +1091,10 @@
             console.log("当前会话ID:", sessionId);
             const sessionInfoDiv = document.createElement("div");
             sessionInfoDiv.id = "session-info";
-            sessionInfoDiv.innerHTML = ` 会话ID: <span id="session-id">${sessionId}</span> <button id="copy-session-link">复制链接</button> `;
+            sessionInfoDiv.innerHTML = `
+                会话ID: <span id="session-id">${sessionId}</span>
+                <button id="copy-session-link">复制链接</button>
+            `;
             const title = document.querySelector('h1');
             title.parentNode.insertBefore(sessionInfoDiv, title.nextSibling);
             let socket = null;
@@ -1013,6 +1106,7 @@
             let adventurerCounter = 1;
             let currentCardForStatus = null;
             let customConditionCounter = 1;
+            let cardToDelete = null;
             const monsterContainer = document.getElementById("monster-container");
             const addMonsterBtn = document.getElementById("add-monster-btn");
             const addAdventurerBtn = document.getElementById("add-adventurer-btn");
@@ -1030,10 +1124,18 @@
             const customStatusName = document.getElementById("custom-status-name");
             const customStatusDesc = document.getElementById("custom-status-desc");
             const addCustomStatusBtn = document.getElementById("add-custom-status");
+            const confirmDialog = document.getElementById("confirm-dialog");
+            const confirmMessage = document.getElementById("confirm-message");
+            const confirmDeleteBtn = document.getElementById("confirm-delete");
+            const confirmCancelBtn = document.getElementById("confirm-cancel");
             let activeTooltip = null;
             const conditionTooltip = document.createElement('div');
             conditionTooltip.className = 'condition-tooltip';
-            conditionTooltip.innerHTML = ` <button class="condition-tooltip-close">×</button> <div class="condition-tooltip-title"></div> <div class="condition-tooltip-desc"></div> `;
+            conditionTooltip.innerHTML = `
+                <button class="condition-tooltip-close">×</button>
+                <div class="condition-tooltip-title"></div>
+                <div class="condition-tooltip-desc"></div>
+            `;
             document.body.appendChild(conditionTooltip);
             conditionTooltip.querySelector('.condition-tooltip-close').addEventListener('click', () => {
                 hideConditionTooltip();
@@ -1126,12 +1228,16 @@
                 initSocketConnection();
                 loadFromServer(true);
                 setupCopySessionLink();
+                setupConfirmDialog();
             }
             function showLoadingState(message = "正在加载战斗数据...") {
                 hideLoadingState();
                 const loadingDiv = document.createElement("div");
                 loadingDiv.id = "loading-indicator";
-                loadingDiv.innerHTML = ` <div class="loading-spinner"></div> <p class="loading-text">${message}</p> `;
+                loadingDiv.innerHTML = `
+                    <div class="loading-spinner"></div>
+                    <p class="loading-text">${message}</p>
+                `;
                 document.body.appendChild(loadingDiv);
             }
             function hideLoadingState() {
@@ -1143,7 +1249,10 @@
                 const errorDiv = document.createElement("div");
                 errorDiv.id = "connection-error";
                 errorDiv.className = "error-message";
-                errorDiv.innerHTML = ` <p>无法连接到服务器，请检查网络连接。</p> <button id="retry-connection-btn">重试连接</button> `;
+                errorDiv.innerHTML = `
+                    <p>无法连接到服务器，请检查网络连接。</p>
+                    <button id="retry-connection-btn">重试连接</button>
+                `;
                 document.querySelector('.container').appendChild(errorDiv);
                 document.getElementById("retry-connection-btn").addEventListener("click", () => {
                     errorDiv.remove();
@@ -1155,7 +1264,10 @@
                 const errorDiv = document.createElement("div");
                 errorDiv.id = "loading-error";
                 errorDiv.className = "error-message";
-                errorDiv.innerHTML = ` <p>加载数据失败: ${error.message || "未知错误"}</p> <button id="retry-loading-btn">重试加载</button> `;
+                errorDiv.innerHTML = `
+                    <p>加载数据失败: ${error.message || "未知错误"}</p>
+                    <button id="retry-loading-btn">重试加载</button>
+                `;
                 document.querySelector('.container').appendChild(errorDiv);
                 document.getElementById("retry-loading-btn").addEventListener("click", () => {
                     errorDiv.remove();
@@ -1167,7 +1279,10 @@
                 const errorDiv = document.createElement("div");
                 errorDiv.id = "save-error";
                 errorDiv.className = "error-message";
-                errorDiv.innerHTML = ` <p>保存数据失败: ${error.message || "未知错误"}</p> <button id="retry-save-btn">重试保存</button> `;
+                errorDiv.innerHTML = `
+                    <p>保存数据失败: ${error.message || "未知错误"}</p>
+                    <button id="retry-save-btn">重试保存</button>
+                `;
                 document.querySelector('.container').appendChild(errorDiv);
                 document.getElementById("retry-save-btn").addEventListener("click", () => {
                     errorDiv.remove();
@@ -1338,6 +1453,32 @@
                         });
                 });
             }
+            function setupConfirmDialog() {
+                confirmCancelBtn.addEventListener("click", () => {
+                    confirmDialog.classList.remove("active");
+                    cardToDelete = null;
+                });
+                confirmDeleteBtn.addEventListener("click", () => {
+                    confirmDialog.classList.remove("active");
+                    if (cardToDelete) {
+                        const monsterId = cardToDelete.dataset.id;
+                        cardToDelete.remove();
+                        if (!monsterContainer.querySelectorAll('.monster-card').length) showEmptyState();
+                        if (socket && socket.connected) {
+                            socket.emit('delete-monster', { sessionId: sessionId, monsterId: monsterId });
+                        }
+                        updateSortButtonStatus();
+                        saveToServer(true);
+                        cardToDelete = null;
+                    }
+                });
+            }
+            function showDeleteConfirmDialog(card) {
+                cardToDelete = card;
+                const monsterName = card.querySelector('.monster-name').textContent;
+                confirmMessage.textContent = `确定要删除 "${monsterName}" 吗？`;
+                confirmDialog.classList.add("active");
+            }
             function createCardFromData(monsterData) {
                 if (!monsterData || !monsterData.id) return null;
                 const existingCard = document.querySelector(`.monster-card[data-id="${monsterData.id}"]`);
@@ -1444,17 +1585,52 @@
                 monsterCard.dataset.id = monsterId;
                 monsterCard.dataset.type = isAdventurer ? "adventurer" : "monster";
                 monsterCard.dataset.conditions = "[]";
-                monsterCard.innerHTML = ` <div class="monster-header"> <div class="monster-info"> <div class="monster-name" contenteditable="true">${name}</div> <div class="tags-container"> <span class="status-badge">存活</span> </div> </div> <div class="card-actions"> <div class="sort-buttons"> <button class="sort-btn up-btn" title="上移"></button> <button class="sort-btn down-btn" title="下移"></button> </div> <button class="card-action-btn status-button" title="管理状态">⚡</button> <button class="card-action-btn lock-button" title="锁定卡片">🔓</button> <button class="card-action-btn delete-button" title="删除">×</button> </div> </div> <div class="hp-display"> <span class="hp-text">HP:</span> <div class="hp-inputs"> <input type="number" class="hp-input current-hp-input" value="${currentHp}" min="0" title="当前生命值"> <span>/</span> <input type="number" class="hp-input max-hp-input" value="${maxHp}" min="1" title="最大生命值"> </div> </div> <div class="temp-hp-display"> <span class="temp-hp-text">临时HP:</span> <input type="number" class="temp-hp-input" value="${tempHp}" min="0" title="临时生命值"> </div> <div class="hp-bar-container"> <div class="hp-bar"> <div class="hp-bar-fill" style="width: 100%"></div> </div> <div class="temp-hp-bar" style="width: 0%"></div> <div class="hp-bar-text">${currentHp}/${maxHp}</div> </div> <div class="damage-controls"> <input type="number" class="damage-input" placeholder="数值" min="0"> <button class="damage-btn">伤害</button> <button class="heal-btn">治疗</button> </div> `;
+                monsterCard.innerHTML = `
+                    <div class="monster-header">
+                        <div class="monster-info">
+                            <div class="monster-name" contenteditable="true">${name}</div>
+                            <div class="tags-container">
+                                <span class="status-badge">存活</span>
+                            </div>
+                        </div>
+                        <div class="card-actions">
+                            <div class="sort-buttons">
+                                <button class="sort-btn up-btn" title="上移"></button>
+                                <button class="sort-btn down-btn" title="下移"></button>
+                            </div>
+                            <button class="card-action-btn status-button" title="管理状态">⚡</button>
+                            <button class="card-action-btn lock-button" title="锁定卡片">🔓</button>
+                            <button class="card-action-btn delete-button" title="删除">×</button>
+                        </div>
+                    </div>
+                    <div class="hp-display">
+                        <span class="hp-text">HP:</span>
+                        <div class="hp-inputs">
+                            <input type="number" class="hp-input current-hp-input" value="${currentHp}" min="0" title="当前生命值">
+                            <span>/</span>
+                            <input type="number" class="hp-input max-hp-input" value="${maxHp}" min="1" title="最大生命值">
+                        </div>
+                    </div>
+                    <div class="temp-hp-display">
+                        <span class="temp-hp-text">临时HP:</span>
+                        <input type="number" class="temp-hp-input" value="${tempHp}" min="0" title="临时生命值">
+                    </div>
+                    <div class="hp-bar-container">
+                        <div class="hp-bar">
+                            <div class="hp-bar-fill" style="width: 100%"></div>
+                        </div>
+                        <div class="temp-hp-bar" style="width: 0%"></div>
+                        <div class="hp-bar-text">${currentHp}/${maxHp}</div>
+                    </div>
+                    <div class="damage-controls">
+                        <input type="number" class="damage-input" placeholder="数值" min="0">
+                        <button class="damage-btn">伤害</button>
+                        <button class="heal-btn">治疗</button>
+                    </div>
+                `;
                 monsterCard.querySelector(".delete-button").addEventListener("click", (e) => {
                     e.stopPropagation();
-                    const monsterId = monsterCard.dataset.id;
-                    monsterCard.remove();
-                    if (!monsterContainer.querySelectorAll('.monster-card').length) showEmptyState();
-                    if (socket && socket.connected) {
-                        socket.emit('delete-monster', { sessionId: sessionId, monsterId: monsterId });
-                    }
-                    updateSortButtonStatus();
-                    saveToServer(true);
+                    showDeleteConfirmDialog(monsterCard);
                 });
                 const lockButton = monsterCard.querySelector(".lock-button");
                 lockButton.addEventListener("click", (e) => {
@@ -1636,7 +1812,10 @@
                 const conditionEl = document.createElement("div");
                 conditionEl.className = `condition-item ${isSelected ? "selected" : ""} ${condition.custom ? "custom-condition" : ""}`;
                 conditionEl.dataset.id = condition.id;
-                conditionEl.innerHTML = ` <div class="condition-name">${condition.name}<span>${isSelected ? "✓" : ""}</span></div> <div class="condition-desc">${condition.desc || ''}</div> `;
+                conditionEl.innerHTML = `
+                    <div class="condition-name">${condition.name}<span>${isSelected ? "✓" : ""}</span></div>
+                    <div class="condition-desc">${condition.desc || ''}</div>
+                `;
                 conditionEl.addEventListener("click", () => {
                     conditionEl.classList.toggle("selected");
                     const checkmark = conditionEl.querySelector(".condition-name span");
